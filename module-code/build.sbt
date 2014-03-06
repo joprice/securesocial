@@ -1,8 +1,14 @@
 import play.Project._
 
-name := "securesocial"
+import bintray.Plugin._
+
+import bintray.Keys._
+
+bintraySettings
 
 organization := "com.github.joprice"
+
+name := "securesocial"
 
 version := "2.1.3.1"
 
@@ -17,12 +23,7 @@ resolvers ++= Seq(
   Resolver.typesafeRepo("releases")
 )
 
-publishMavenStyle := false
-
-publishTo <<= (version) { v: String =>
-  val status = if(v.trim.endsWith("-SNAPSHOT")) "snapshots" else "releases"
-  Some(Resolver.sbtPluginRepo(status))
-}
+licenses += ("Apache-2.0", url("http://www.apache.org/licenses/LICENSE-2.0.html"))
 
 scalacOptions := Seq("-feature", "-deprecation")
 
