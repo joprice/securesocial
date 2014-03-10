@@ -130,13 +130,13 @@ abstract class OAuth2Provider(application: Application, jsonResponse: Boolean = 
 
         // split url to separate existing query string, if any
         val (path, query) = settings.authorizationUrl.split("\\?", 2) match {
-          case parts if parts.size == 2 => (parts(0), parts(1))
-          case parts => (parts(0), "")
+          case parts if parts.size == 2 => (parts(0), Some(parts(1)))
+          case parts => (parts(0), None)
         }
 
-        val queryString = (query :: params.map(p => p._1 + "=" + URLEncoder.encode(p._2, "UTF-8")))
-                            .mkString("?", "&", "")
-        val url = settings.authorizationUrl + queryString
+        val encoded = params.map(p => p._1 + "=" + URLEncoder.encode(p._2, "UTF-8"))
+        val queryString = query.map(_ :: encoded).getOrElse(encoded).mkString("?", "&", "")
+        val url = path + queryString
 
         if ( Logger.isDebugEnabled ) {
           Logger.debug("[securesocial] authorizationUrl = %s".format(settings.authorizationUrl))
