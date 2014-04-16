@@ -23,7 +23,7 @@ import Play.current
 import providers.UsernamePasswordProvider
 import providers.utils.RoutesHelper
 import play.Logger
-
+import scala.concurrent.Future
 
 /**
  * The Login page controller
@@ -39,22 +39,26 @@ object LoginPage extends Controller
    * Renders the login page
    * @return
    */
-  def login = Action { implicit request =>
+  def login = Action.async { implicit request =>
     val to = ProviderController.landingUrl
     if ( SecureSocial.currentUser.isDefined ) {
       // if the user is already logged in just redirect to the app
       if ( Logger.isDebugEnabled() ) {
         Logger.debug("User already logged in, skipping login page. Redirecting to %s".format(to))
       }
-      Redirect( to )
+      Future.successful(Redirect( to ))
     } else {
+      implicit lazy val context = SecureSocial.context
       import com.typesafe.plugin._
+      val plugin = use[TemplatesPlugin]
+
       if ( SecureSocial.enableRefererAsOriginalUrl ) {
-        SecureSocial.withRefererAsOriginalUrl(Ok(use[TemplatesPlugin].getLoginPage(request, UsernamePasswordProvider.loginForm)))
+        plugin.getLoginPage(request, UsernamePasswordProvider.loginForm).map { template =>
+          SecureSocial.withRefererAsOriginalUrl(Ok(template))
+        }
       } else {
         import Play.current
-        Ok(use[TemplatesPlugin].getLoginPage(request, UsernamePasswordProvider.loginForm))
-
+        plugin.getLoginPage(request, UsernamePasswordProvider.loginForm).map(Ok(_))
       }
     }
   }

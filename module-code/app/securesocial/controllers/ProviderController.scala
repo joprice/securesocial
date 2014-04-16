@@ -24,8 +24,10 @@ import Play.current
 import providers.utils.RoutesHelper
 import securesocial.core.LoginEvent
 import securesocial.core.AccessDeniedException
-import scala.Some
-
+import com.typesafe.plugin.use
+import scala.concurrent.Future
+import SecureSocial.context
+import com.typesafe.plugin._
 
 /**
  * A controller to provide the authentication entry point
@@ -71,9 +73,8 @@ object ProviderController extends Controller
    *
    * @see Authorization
    */
-  def notAuthorized() = Action { implicit request =>
-    import com.typesafe.plugin._
-    Forbidden(use[TemplatesPlugin].getNotAuthorizedPage)
+  def notAuthorized() = Action.async { implicit request =>
+    use[TemplatesPlugin].getNotAuthorizedPage.map(Forbidden(_))
   }
 
   /**
@@ -85,14 +86,12 @@ object ProviderController extends Controller
   def authenticate(provider: String) = handleAuth(provider)
   def authenticateByPost(provider: String) = handleAuth(provider)
 
-  private def handleAuth(provider: String) = Action { implicit request =>
+  private def handleAuth(provider: String) = Action.async { implicit request =>
     Registry.providers.get(provider) match {
-      case Some(p) => {
-        try {
-          p.authenticate().fold( result => result , {
-            user => completeAuthentication(user, session)
-          })
-        } catch {
+      case Some(p) =>
+        p.authenticate().map(_.fold(identity, { user =>
+          completeAuthentication(user, session)
+        })).recover {
           case ex: AccessDeniedException => {
             Redirect(RoutesHelper.login()).flashing("error" -> Messages("securesocial.login.accessDenied"))
           }
@@ -102,8 +101,7 @@ object ProviderController extends Controller
             Redirect(RoutesHelper.login()).flashing("error" -> Messages("securesocial.login.errorLoggingIn"))
           }
         }
-      }
-      case _ => NotFound
+      case _ => Future.successful(NotFound)
     }
   }
 

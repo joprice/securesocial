@@ -20,6 +20,7 @@ import play.api.{Application, Logger}
 import play.api.libs.json.JsObject
 import securesocial.core._
 import play.api.libs.ws.{ Response, WS }
+import scala.concurrent.ExecutionContext
 
 /**
  * A Facebook Provider
@@ -55,10 +56,7 @@ class FacebookProvider(application: Application) extends OAuth2Provider(applicat
 
   def fillProfile(user: SocialUser) = {
     val accessToken = user.oAuth2Info.get.accessToken
-    val call = WS.url(MeApi + accessToken).get()
-
-    try {
-      val response = awaitResult(call)
+    WS.url(MeApi + accessToken).get().map { response =>
       val me = response.json
       (me \ Error).asOpt[JsObject] match {
         case Some(error) =>
@@ -87,7 +85,7 @@ class FacebookProvider(application: Application) extends OAuth2Provider(applicat
             email = Some(email)
           )
       }
-    } catch {
+    }.recover {
       case e: Exception => {
           Logger.error("[securesocial] error retrieving profile information from Facebook",  e)
           throw new AuthenticationException()

@@ -26,9 +26,8 @@ import play.api.data.Forms._
 import securesocial.core.providers.utils.{Mailer, RoutesHelper, PasswordHasher, PasswordValidator}
 import play.api.i18n.Messages
 import securesocial.core.SecuredRequest
-
-import play.api.libs.concurrent.Execution.Implicits.defaultContext
 import scala.concurrent.Future
+import SecureSocial.context
 
 /**
  * A controller to provide password change functionality
@@ -88,28 +87,28 @@ object PasswordChange extends Controller with SecureSocial {
 
   def page = SecuredAction.async { implicit request =>
     execute { (request: SecuredRequest[AnyContent], form: Form[ChangeInfo]) =>
-      Future.successful(Ok(use[TemplatesPlugin].getPasswordChangePage(request, form)))
+      use[TemplatesPlugin].getPasswordChangePage(request, form).map(Ok(_))
     }
   }
 
   def handlePasswordChange = SecuredAction.async { implicit request =>
     execute { (request: SecuredRequest[AnyContent], form: Form[ChangeInfo]) =>
-      form.bindFromRequest()(request).fold (
-        errors => Future.successful(BadRequest(use[TemplatesPlugin].getPasswordChangePage(request, errors))),
+      form.bindFromRequest()(request).fold({ errors =>
+          use[TemplatesPlugin].getPasswordChangePage(request, errors).map(BadRequest(_))
+        },
         info =>  {
           import scala.language.reflectiveCalls
           val newPasswordInfo = Registry.hashers.currentHasher.hash(info.newPassword)
           val u = UserService.save( SocialUser(request.user).copy( passwordInfo = Some(newPasswordInfo)) )
 
-          Mailer.sendPasswordChangedNotice(u)(request, defaultContext).map { _ =>
+          Mailer.sendPasswordChangedNotice(u)(request).map { _ =>
             val result = Redirect(onHandlePasswordChangeGoTo).flashing(Success -> Messages(OkMessage))
             Events.fire(new PasswordChangeEvent(u))(request).map( result.withSession(_)).getOrElse(result)
           }.recover {
             case _ => 
               Redirect(onHandlePasswordChangeGoTo).flashing(Error -> Messages(ErrorMessage))
           }
-        }
-      )
+        })
     }
   }
 }

@@ -21,7 +21,7 @@ import play.api.libs.oauth.{RequestToken, OAuthCalculator}
 import play.api.libs.ws.WS
 import play.api.{Application, Logger}
 import TwitterProvider._
-
+import scala.concurrent.Future
 
 /**
  * A Twitter Provider
@@ -29,25 +29,22 @@ import TwitterProvider._
 class TwitterProvider(application: Application) extends OAuth1Provider(application) {
   override def id = TwitterProvider.Twitter
 
-  override  def fillProfile(user: SocialUser): SocialUser = {
+  override  def fillProfile(user: SocialUser) = {
     val oauthInfo = user.oAuth1Info.get
-    val call = WS.url(TwitterProvider.VerifyCredentials).sign(
+
+    WS.url(TwitterProvider.VerifyCredentials).sign(
       OAuthCalculator(SecureSocial.serviceInfoFor(user).get.key,
       RequestToken(oauthInfo.token, oauthInfo.secret))
-    ).get()
-
-    try {
-      val response = awaitResult(call)
+    ).get().map { response =>
       val me = response.json
       val userId = (me \ Id).as[Int]
       val name = (me \ Name).as[String]
       val profileImage = (me \ ProfileImage).asOpt[String]
       user.copy(identityId = IdentityId(userId.toString, id), fullName = name, avatarUrl = profileImage)
-
-    } catch {
+    } recoverWith {
       case e: Exception => {
         Logger.error("[securesocial] error retrieving profile information from Twitter", e)
-        throw new AuthenticationException()
+        Future.failed(new AuthenticationException())
       }
     }
   }

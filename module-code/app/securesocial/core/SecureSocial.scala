@@ -26,7 +26,7 @@ import scala.concurrent.Future
 import scala.Some
 import play.api.mvc.SimpleResult
 import play.api.libs.oauth.ServiceInfo
-
+import scala.concurrent.ExecutionContext
 
 /**
  * A request that adds the User for the current call
@@ -174,6 +174,14 @@ trait SecureSocial extends Controller {
 object SecureSocial {
   val OriginalUrlKey = "original-url"
 
+  import play.api.Play.current
+  import play.api.libs.concurrent.Akka
+
+  // name is configurable to allow reusing an existing context
+  lazy val contextName = current.configuration.getString("securesocial.context").getOrElse("securesocial")
+
+  implicit lazy val context: ExecutionContext = Akka.system.dispatchers.lookup(contextName)
+
   def authenticatorFromRequest(implicit request: RequestHeader): Option[Authenticator] = {
     val result = for {
       cookie <- request.cookies.get(Authenticator.cookieName) ;
@@ -235,7 +243,7 @@ object SecureSocial {
    * @param result the result that maybe enhanced with an updated session
    * @return the result that's returned to the client
    */
-  def withRefererAsOriginalUrl[A](result: Result)(implicit request: Request[A]): Result = {
+  def withRefererAsOriginalUrl[A](result: SimpleResult)(implicit request: Request[A]): SimpleResult = {
     request.session.get(OriginalUrlKey) match {
       // If there's already an original url recorded we keep it: e.g. if s.o. goes to
       // login, switches to signup and goes back to login we want to keep the first referer

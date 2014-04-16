@@ -26,6 +26,7 @@ import play.api.mvc.RequestHeader
 import play.api.i18n.Messages
 import play.api.templates.{Html, Txt}
 import scala.concurrent.{Future, ExecutionContext}
+import securesocial.core.SecureSocial
 
 /**
  * A helper class to send email notifications
@@ -39,41 +40,48 @@ object Mailer {
   val UnknownEmailNoticeSubject = "mails.unknownEmail.subject"
   val PasswordResetOkSubject = "mails.passwordResetOk.subject"
 
+  implicit lazy val context = SecureSocial.context
 
-  def sendAlreadyRegisteredEmail(user: Identity)(implicit request: RequestHeader, ex: ExecutionContext) = {
-    val txtAndHtml = use[TemplatesPlugin].getAlreadyRegisteredEmail(user)
-    sendEmail(Messages(AlreadyRegisteredSubject), user.email.get, txtAndHtml)
+  def sendAlreadyRegisteredEmail(user: Identity)(implicit request: RequestHeader) = {
+    use[TemplatesPlugin].getAlreadyRegisteredEmail(user).flatMap { txtAndHtml =>
+      sendEmail(Messages(AlreadyRegisteredSubject), user.email.get, txtAndHtml)
+    }
   }
 
-  def sendSignUpEmail(to: String, token: String)(implicit request: RequestHeader, ex: ExecutionContext) = {
-    val txtAndHtml = use[TemplatesPlugin].getSignUpEmail(token)
-    sendEmail(Messages(SignUpEmailSubject), to, txtAndHtml)
+  def sendSignUpEmail(to: String, token: String)(implicit request: RequestHeader) = {
+    use[TemplatesPlugin].getSignUpEmail(token).flatMap { txtAndHtml =>
+        sendEmail(Messages(SignUpEmailSubject), to, txtAndHtml)
+    }
   }
 
-  def sendWelcomeEmail(user: Identity)(implicit request: RequestHeader, ex: ExecutionContext) = {
-    val txtAndHtml = use[TemplatesPlugin].getWelcomeEmail(user)
-    sendEmail(Messages(WelcomeEmailSubject), user.email.get, txtAndHtml)
+  def sendWelcomeEmail(user: Identity)(implicit request: RequestHeader) = {
+    use[TemplatesPlugin].getWelcomeEmail(user).flatMap { txtAndHtml =>
+        sendEmail(Messages(WelcomeEmailSubject), user.email.get, txtAndHtml)
+    }
   }
 
-  def sendPasswordResetEmail(user: Identity, token: String)(implicit request: RequestHeader, ex: ExecutionContext) = {
-    val txtAndHtml = use[TemplatesPlugin].getSendPasswordResetEmail(user, token)
-    sendEmail(Messages(PasswordResetSubject), user.email.get, txtAndHtml)
+  def sendPasswordResetEmail(user: Identity, token: String)(implicit request: RequestHeader) = {
+    use[TemplatesPlugin].getSendPasswordResetEmail(user, token).flatMap { txtAndHtml =>
+      sendEmail(Messages(PasswordResetSubject), user.email.get, txtAndHtml)
+    }
   }
 
-  def sendUnkownEmailNotice(email: String)(implicit request: RequestHeader, ex: ExecutionContext) = {
-    val txtAndHtml = use[TemplatesPlugin].getUnknownEmailNotice()
-    sendEmail(Messages(UnknownEmailNoticeSubject), email, txtAndHtml)
+  def sendUnkownEmailNotice(email: String)(implicit request: RequestHeader) = {
+    use[TemplatesPlugin].getUnknownEmailNotice().flatMap { txtAndHtml =>
+      sendEmail(Messages(UnknownEmailNoticeSubject), email, txtAndHtml)
+    }
   }
 
-  def sendPasswordChangedNotice(user: Identity)(implicit request: RequestHeader, ex: ExecutionContext) = {
-    val txtAndHtml = use[TemplatesPlugin].getPasswordChangedNoticeEmail(user)
-    sendEmail(Messages(PasswordResetOkSubject), user.email.get, txtAndHtml)
+  def sendPasswordChangedNotice(user: Identity)(implicit request: RequestHeader) = {
+    use[TemplatesPlugin].getPasswordChangedNoticeEmail(user).flatMap { txtAndHtml =>
+      sendEmail(Messages(PasswordResetOkSubject), user.email.get, txtAndHtml)
+    }
   }
 
-  private def sendEmail(subject: String, recipient: String, body: (Option[Txt], Option[Html]))
-                       (implicit ex: ExecutionContext) = {
+  private def sendEmail(subject: String, recipient: String, body: (Option[Txt], Option[Html])) = {
     import com.typesafe.plugin._
     import scala.concurrent.duration._
+
 
     if ( Logger.isDebugEnabled ) {
       Logger.debug("[securesocial] sending email to %s".format(recipient))

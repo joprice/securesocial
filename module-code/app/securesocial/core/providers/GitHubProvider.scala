@@ -23,7 +23,7 @@ import securesocial.core.IdentityId
 import securesocial.core.SocialUser
 import play.api.libs.ws.Response
 import securesocial.core.AuthenticationException
-import scala.Some
+import scala.concurrent.Future
 
 /**
  * A GitHub provider
@@ -64,10 +64,8 @@ class GitHubProvider(application: Application) extends OAuth2Provider(applicatio
    * @param user The user object to be populated
    * @return A copy of the user object with the new values set
    */
-  def fillProfile(user: SocialUser): SocialUser = {
-    val promise = WS.url(GetAuthenticatedUser.format(user.oAuth2Info.get.accessToken)).get()
-    try {
-      val response = awaitResult(promise)
+  def fillProfile(user: SocialUser) = {
+    WS.url(GetAuthenticatedUser.format(user.oAuth2Info.get.accessToken)).get().map { response =>
       val me = response.json
       (me \ Message).asOpt[String] match {
         case Some(msg) => {
@@ -87,10 +85,10 @@ class GitHubProvider(application: Application) extends OAuth2Provider(applicatio
           )
         }
       }
-    } catch {
+    }.recoverWith {
       case e: Exception => {
         Logger.error( "[securesocial] error retrieving profile information from github", e)
-        throw new AuthenticationException()
+        Future.failed(new AuthenticationException())
       }
     }
   }

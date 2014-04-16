@@ -24,6 +24,7 @@ import play.api.libs.oauth.{RequestToken, OAuthCalculator}
 import play.api.libs.ws.WS
 import play.api.{Application, Logger}
 import XingProvider._
+import scala.concurrent.Future
 
 /**
  * A Xing Provider
@@ -31,15 +32,13 @@ import XingProvider._
 class XingProvider(application: Application) extends OAuth1Provider(application) {
   override def id = XingProvider.Xing
 
-  override  def fillProfile(user: SocialUser): SocialUser = {
+  override  def fillProfile(user: SocialUser) = {
     val oauthInfo = user.oAuth1Info.get
-    val call = WS.url(XingProvider.VerifyCredentials).sign(
+
+    WS.url(XingProvider.VerifyCredentials).sign(
       OAuthCalculator(SecureSocial.serviceInfoFor(user).get.key,
       RequestToken(oauthInfo.token, oauthInfo.secret))
-    ).get()
-
-    try {
-      val response = awaitResult(call)
+    ).get().map { response =>
       val me = response.json
 
       val userId = (me \\ Id ).head.as[String]
@@ -55,11 +54,10 @@ class XingProvider(application: Application) extends OAuth1Provider(application)
         avatarUrl = Some(profileImage),
         email = Some(email)
       )
-
-    } catch {
+    }.recoverWith {
       case e: Exception => {
         Logger.error("[securesocial] error retrieving profile information from Xing", e)
-        throw new AuthenticationException()
+        Future.failed(new AuthenticationException())
       }
     }
   }

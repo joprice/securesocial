@@ -19,8 +19,11 @@ package securesocial.core
 import providers.utils.RoutesHelper
 import play.api.mvc.{Request, Result}
 import play.api.{Play, Application, Logger, Plugin}
-import concurrent.{Await, Future}
+import concurrent.{Await, Future, ExecutionContext}
 import play.api.libs.ws.Response
+import play.api.mvc.SimpleResult
+import play.api.libs.concurrent.Akka
+import play.api.Play.current
 
 /**
  * Base class for all Identity Providers.  All providers are plugins and are loaded
@@ -32,6 +35,7 @@ abstract class IdentityProvider(application: Application) extends Plugin with Re
   val SecureSocialKey = "securesocial."
   val Dot = "."
 
+  implicit lazy val context = SecureSocial.context
 
   /**
    * Registers the provider in the Provider Registry
@@ -71,16 +75,15 @@ abstract class IdentityProvider(application: Application) extends Plugin with Re
    * @tparam A
    * @return
    */
-  def authenticate[A]()(implicit request: Request[A]):Either[Result, Identity] = {
-    doAuth().fold(
-      result => Left(result),
-      u =>
-      {
-        val user = fillProfile(u)
-        val saved = UserService.save(user)
-        Right(saved)
+  def authenticate[A]()(implicit request: Request[A]): Future[Either[SimpleResult, Identity]] = {
+    doAuth().flatMap(_.fold(
+      result => Future.successful(Left(result)),
+      u => {
+        fillProfile(u).map {
+          u => Right(UserService.save(u))
+        }
       }
-    )
+    ))
   }
 
   /**
@@ -119,16 +122,16 @@ abstract class IdentityProvider(application: Application) extends Plugin with Re
    * @tparam A
    * @return Either a Result or a User
    */
-  def doAuth[A]()(implicit request: Request[A]):Either[Result, SocialUser]
+   def doAuth[A]()(implicit request: Request[A]): Future[Either[SimpleResult, SocialUser]]
 
-  /**
+    /**
    * Subclasses need to implement this method to populate the User object with profile
    * information from the service provider.
    *
    * @param user The user object to be populated
    * @return A copy of the user object with the new values set
    */
-  def fillProfile(user: SocialUser):SocialUser
+  def fillProfile(user: SocialUser): Future[SocialUser]
 
   protected def throwMissingPropertiesException() {
     val msg = "[securesocial] Missing properties for provider '%s'. Verify your configuration file is properly set.".format(id)
@@ -136,9 +139,6 @@ abstract class IdentityProvider(application: Application) extends Plugin with Re
     throw new RuntimeException(msg)
   }
 
-  protected def awaitResult(future: Future[Response]) = {
-    Await.result(future, IdentityProvider.secondsToWait)
-  }
 }
 
 object IdentityProvider {
@@ -155,10 +155,5 @@ object IdentityProvider {
       )
     }
     result
-  }
-
-  val secondsToWait = {
-    import scala.concurrent.duration._
-    10.seconds
   }
 }

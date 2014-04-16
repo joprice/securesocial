@@ -26,6 +26,7 @@ import Play.current
 import com.typesafe.plugin._
 import securesocial.controllers.TemplatesPlugin
 import org.joda.time.DateTime
+import scala.concurrent.{Future, ExecutionContext}
 
 /**
  * A username password provider
@@ -38,34 +39,36 @@ class UsernamePasswordProvider(application: Application) extends IdentityProvide
 
   val InvalidCredentials = "securesocial.login.invalidCredentials"
 
-  def doAuth[A]()(implicit request: Request[A]): Either[Result, SocialUser] = {
-    val form = UsernamePasswordProvider.loginForm.bindFromRequest()
-    form.fold(
-      errors => Left(badRequest(errors, request)),
+  def doAuth[A]()(implicit request: Request[A]): Future[Either[SimpleResult, SocialUser]] = {
+    UsernamePasswordProvider.loginForm.bindFromRequest().fold(
+      errors => badRequest(errors, request).map(Left(_)),
       credentials => {
-        val userId = IdentityId(credentials._1, id)
-        val result = for (
-          user <- UserService.find(userId) ;
-          pinfo <- user.passwordInfo ;
-          hasher <- Registry.hashers.get(pinfo.hasher) if hasher.matches(pinfo, credentials._2)
-        ) yield (
-          Right(SocialUser(user))
-        )
-        result.getOrElse(
-          Left(badRequest(UsernamePasswordProvider.loginForm, request, Some(InvalidCredentials)))
-        )
+          val userId = IdentityId(credentials._1, id)
+          Future(UserService.find(userId)).flatMap { user =>
+            (for {
+              u <- user
+              pinfo <- u.passwordInfo
+              hasher <- Registry.hashers.get(pinfo.hasher) if (hasher.matches(pinfo, credentials._2))
+            } yield (SocialUser(u))).map { u =>
+              Future.successful(Right(SocialUser(u)))
+            }.getOrElse {
+              badRequest(UsernamePasswordProvider.loginForm, request, Some(InvalidCredentials)).map(Left(_))
+            }
+          }
       }
     )
   }
 
-  private def badRequest[A](f: Form[(String,String)], request: Request[A], msg: Option[String] = None): SimpleResult = {
-    Results.BadRequest(use[TemplatesPlugin].getLoginPage(request, f, msg))
+  private def badRequest[A](f: Form[(String,String)], request: Request[A], msg: Option[String] = None): Future[SimpleResult] = {
+    use[TemplatesPlugin].getLoginPage(request, f, msg).map(Results.BadRequest(_))
   }
 
   def fillProfile(user: SocialUser) = {
-    GravatarHelper.avatarFor(user.email.get) match {
-      case Some(url) if url != user.avatarUrl => user.copy( avatarUrl = Some(url))
-      case _ => user
+    Future.successful {
+      GravatarHelper.avatarFor(user.email.get) match {
+        case Some(url) if url != user.avatarUrl => user.copy(avatarUrl = Some(url))
+        case _ => user
+      }
     }
   }
 }

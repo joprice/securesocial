@@ -19,3 +19,4 @@ eclipse
 *.iml
 *.ipr
 *.iws
+atlassian-ide-plugin.xml

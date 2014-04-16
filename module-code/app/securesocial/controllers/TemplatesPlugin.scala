@@ -23,7 +23,8 @@ import securesocial.core.{Identity, SecuredRequest, SocialUser}
 import play.api.data.Form
 import securesocial.controllers.Registration.RegistrationInfo
 import securesocial.controllers.PasswordChange.ChangeInfo
-
+import scala.concurrent.{Future, ExecutionContext}
+import securesocial.core.SecureSocial
 
 /**
  * A trait that defines methods that return the html pages and emails for SecureSocial.
@@ -44,7 +45,7 @@ trait TemplatesPlugin extends Plugin {
    * @tparam A
    * @return
    */
-  def getLoginPage[A](implicit request: Request[A], form: Form[(String, String)], msg: Option[String] = None): Html
+  def getLoginPage[A](implicit request: Request[A], form: Form[(String, String)], msg: Option[String] = None): Future[Html]
 
   /**
    * Returns the html for the signup page
@@ -53,7 +54,7 @@ trait TemplatesPlugin extends Plugin {
    * @tparam A
    * @return
    */
-  def getSignUpPage[A](implicit request: Request[A], form: Form[RegistrationInfo], token: String): Html
+  def getSignUpPage[A](implicit request: Request[A], form: Form[RegistrationInfo], token: String): Future[Html]
 
   /**
    * Returns the html for the start signup page
@@ -62,7 +63,7 @@ trait TemplatesPlugin extends Plugin {
    * @tparam A
    * @return
    */
-  def getStartSignUpPage[A](implicit request: Request[A], form: Form[String]): Html
+  def getStartSignUpPage[A](implicit request: Request[A], form: Form[String]): Future[Html]
 
   /**
    * Returns the html for the reset password page
@@ -71,7 +72,7 @@ trait TemplatesPlugin extends Plugin {
    * @tparam A
    * @return
    */
-  def getResetPasswordPage[A](implicit request: Request[A], form: Form[(String, String)], token: String): Html
+  def getResetPasswordPage[A](implicit request: Request[A], form: Form[(String, String)], token: String): Future[Html]
 
   /**
    * Returns the html for the start reset page
@@ -80,7 +81,7 @@ trait TemplatesPlugin extends Plugin {
    * @tparam A
    * @return
    */
-  def getStartResetPasswordPage[A](implicit request: Request[A], form: Form[String]): Html
+  def getStartResetPasswordPage[A](implicit request: Request[A], form: Form[String]): Future[Html]
 
   /**
    * Returns the html for the change password page
@@ -90,7 +91,7 @@ trait TemplatesPlugin extends Plugin {
    * @tparam A
    * @return
    */
-  def getPasswordChangePage[A](implicit request: SecuredRequest[A], form: Form[ChangeInfo]): Html
+  def getPasswordChangePage[A](implicit request: SecuredRequest[A], form: Form[ChangeInfo]): Future[Html]
 
   /**
    * Returns the html for the not authorized page
@@ -99,7 +100,7 @@ trait TemplatesPlugin extends Plugin {
    * @tparam A
    * @return
    */
-  def getNotAuthorizedPage[A](implicit request: Request[A]): Html
+  def getNotAuthorizedPage[A](implicit request: Request[A]): Future[Html]
 
   /**
    * Returns the email sent when a user starts the sign up process
@@ -108,7 +109,7 @@ trait TemplatesPlugin extends Plugin {
    * @param request the current http request
    * @return a String with the text and/or html body for the email
    */
-  def getSignUpEmail(token: String)(implicit request: RequestHeader): (Option[Txt], Option[Html])
+  def getSignUpEmail(token: String)(implicit request: RequestHeader): Future[(Option[Txt], Option[Html])]
 
   /**
    * Returns the email sent when the user is already registered
@@ -117,7 +118,7 @@ trait TemplatesPlugin extends Plugin {
    * @param request the current request
    * @return a tuple with the text and/or html body for the email
    */
-  def getAlreadyRegisteredEmail(user: Identity)(implicit request: RequestHeader): (Option[Txt], Option[Html])
+  def getAlreadyRegisteredEmail(user: Identity)(implicit request: RequestHeader): Future[(Option[Txt], Option[Html])]
 
   /**
    * Returns the welcome email sent when the user finished the sign up process
@@ -126,7 +127,7 @@ trait TemplatesPlugin extends Plugin {
    * @param request the current request
    * @return a String with the text and/or html body for the email
    */
-  def getWelcomeEmail(user: Identity)(implicit request: RequestHeader): (Option[Txt], Option[Html])
+  def getWelcomeEmail(user: Identity)(implicit request: RequestHeader): Future[(Option[Txt], Option[Html])]
 
   /**
    * Returns the email sent when a user tries to reset the password but there is no account for
@@ -135,7 +136,7 @@ trait TemplatesPlugin extends Plugin {
    * @param request the current request
    * @return a String with the text and/or html body for the email
    */
-  def getUnknownEmailNotice()(implicit request: RequestHeader): (Option[Txt], Option[Html])
+  def getUnknownEmailNotice()(implicit request: RequestHeader): Future[(Option[Txt], Option[Html])]
 
   /**
    * Returns the email sent to the user to reset the password
@@ -145,7 +146,7 @@ trait TemplatesPlugin extends Plugin {
    * @param request the current http request
    * @return a String with the text and/or html body for the email
    */
-  def getSendPasswordResetEmail(user: Identity, token: String)(implicit request: RequestHeader): (Option[Txt], Option[Html])
+  def getSendPasswordResetEmail(user: Identity, token: String)(implicit request: RequestHeader): Future[(Option[Txt], Option[Html])]
 
   /**
    * Returns the email sent as a confirmation of a password change
@@ -154,7 +155,7 @@ trait TemplatesPlugin extends Plugin {
    * @param request the current http request
    * @return a String with the text and/or html body for the email
    */
-  def getPasswordChangedNoticeEmail(user: Identity)(implicit request: RequestHeader): (Option[Txt], Option[Html])
+  def getPasswordChangedNoticeEmail(user: Identity)(implicit request: RequestHeader): Future[(Option[Txt], Option[Html])]
 
 }
 
@@ -165,57 +166,59 @@ trait TemplatesPlugin extends Plugin {
  * @param application
  */
 class DefaultTemplatesPlugin(application: Application) extends TemplatesPlugin {
+
+  implicit lazy val context = SecureSocial.context
+
   override def getLoginPage[A](implicit request: Request[A], form: Form[(String, String)],
-                               msg: Option[String] = None): Html =
-  {
-    securesocial.views.html.login(form, msg)
+                               msg: Option[String] = None): Future[Html] = {
+    Future.successful(securesocial.views.html.login(form, msg))
   }
 
-  override def getSignUpPage[A](implicit request: Request[A], form: Form[RegistrationInfo], token: String): Html = {
-    securesocial.views.html.Registration.signUp(form, token)
+  override def getSignUpPage[A](implicit request: Request[A], form: Form[RegistrationInfo], token: String): Future[Html] = {
+    Future.successful(securesocial.views.html.Registration.signUp(form, token))
   }
 
-  override def getStartSignUpPage[A](implicit request: Request[A], form: Form[String]): Html = {
-    securesocial.views.html.Registration.startSignUp(form)
+  override def getStartSignUpPage[A](implicit request: Request[A], form: Form[String]): Future[Html] = {
+    Future.successful(securesocial.views.html.Registration.startSignUp(form))
   }
 
-  override def getStartResetPasswordPage[A](implicit request: Request[A], form: Form[String]): Html = {
-    securesocial.views.html.Registration.startResetPassword(form)
+  override def getStartResetPasswordPage[A](implicit request: Request[A], form: Form[String]): Future[Html] = {
+    Future.successful(securesocial.views.html.Registration.startResetPassword(form))
   }
 
-  def getResetPasswordPage[A](implicit request: Request[A], form: Form[(String, String)], token: String): Html = {
-    securesocial.views.html.Registration.resetPasswordPage(form, token)
+  def getResetPasswordPage[A](implicit request: Request[A], form: Form[(String, String)], token: String): Future[Html]= {
+    Future.successful(securesocial.views.html.Registration.resetPasswordPage(form, token))
   }
 
-  def getPasswordChangePage[A](implicit request: SecuredRequest[A], form: Form[ChangeInfo]):Html = {
-    securesocial.views.html.passwordChange(form)
+  def getPasswordChangePage[A](implicit request: SecuredRequest[A], form: Form[ChangeInfo]): Future[Html] = {
+    Future.successful(securesocial.views.html.passwordChange(form))
   }
 
-  def getNotAuthorizedPage[A](implicit request: Request[A]): Html = {
-    securesocial.views.html.notAuthorized()
+  def getNotAuthorizedPage[A](implicit request: Request[A]): Future[Html] = {
+    Future.successful(securesocial.views.html.notAuthorized())
   }
 
-  def getSignUpEmail(token: String)(implicit request: RequestHeader): (Option[Txt], Option[Html]) = {
-    (None, Some(securesocial.views.html.mails.signUpEmail(token)))
+  def getSignUpEmail(token: String)(implicit request: RequestHeader): Future[(Option[Txt], Option[Html])] = {
+    Future.successful((None, Some(securesocial.views.html.mails.signUpEmail(token))))
   }
 
-  def getAlreadyRegisteredEmail(user: Identity)(implicit request: RequestHeader): (Option[Txt], Option[Html]) = {
-    (None, Some(securesocial.views.html.mails.alreadyRegisteredEmail(user)))
+  def getAlreadyRegisteredEmail(user: Identity)(implicit request: RequestHeader): Future[(Option[Txt], Option[Html])] = {
+    Future.successful((None, Some(securesocial.views.html.mails.alreadyRegisteredEmail(user))))
   }
 
-  def getWelcomeEmail(user: Identity)(implicit request: RequestHeader): (Option[Txt], Option[Html]) = {
-    (None, Some(securesocial.views.html.mails.welcomeEmail(user)))
+  def getWelcomeEmail(user: Identity)(implicit request: RequestHeader): Future[(Option[Txt], Option[Html])] = {
+    Future.successful((None, Some(securesocial.views.html.mails.welcomeEmail(user))))
   }
 
-  def getUnknownEmailNotice()(implicit request: RequestHeader): (Option[Txt], Option[Html]) = {
-    (None, Some(securesocial.views.html.mails.unknownEmailNotice(request)))
+  def getUnknownEmailNotice()(implicit request: RequestHeader): Future[(Option[Txt], Option[Html])] = {
+    Future.successful((None, Some(securesocial.views.html.mails.unknownEmailNotice(request))))
   }
 
-  def getSendPasswordResetEmail(user: Identity, token: String)(implicit request: RequestHeader): (Option[Txt], Option[Html]) = {
-    (None, Some(securesocial.views.html.mails.passwordResetEmail(user, token)))
+  def getSendPasswordResetEmail(user: Identity, token: String)(implicit request: RequestHeader): Future[(Option[Txt], Option[Html])] = {
+    Future.successful((None, Some(securesocial.views.html.mails.passwordResetEmail(user, token))))
   }
 
-  def getPasswordChangedNoticeEmail(user: Identity)(implicit request: RequestHeader): (Option[Txt], Option[Html]) = {
-    (None, Some(securesocial.views.html.mails.passwordChangedNotice(user)))
+  def getPasswordChangedNoticeEmail(user: Identity)(implicit request: RequestHeader): Future[(Option[Txt], Option[Html])] = {
+    Future.successful((None, Some(securesocial.views.html.mails.passwordChangedNotice(user))))
   }
 }

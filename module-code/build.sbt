@@ -10,7 +10,7 @@ organization := "com.github.joprice"
 
 name := "securesocial"
 
-version := "2.1.3.1"
+version := "2.1.3.3"
 
 libraryDependencies ++= Seq(
   cache,

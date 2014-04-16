@@ -24,7 +24,9 @@ import Play.current
 import play.api.mvc.{Results, Result, Request}
 import providers.utils.RoutesHelper
 import play.api.libs.ws.{Response, WS}
-import scala.concurrent.TimeoutException
+import scala.concurrent.{ExecutionContext, Future}
+import scala.util.Failure
+import play.api.mvc.SimpleResult
 
 /**
  * Base class for all OAuth2 providers
@@ -50,7 +52,7 @@ abstract class OAuth2Provider(application: Application, jsonResponse: Boolean = 
     result.get
   }
 
-  private def getAccessToken[A](code: String)(implicit request: Request[A]):OAuth2Info = {
+  private def getAccessToken[A](code: String)(implicit request: Request[A]): Future[OAuth2Info] = {
     val params = Map(
       OAuth2Constants.ClientId -> Seq(settings.clientId),
       OAuth2Constants.ClientSecret -> Seq(settings.clientSecret),
@@ -58,13 +60,11 @@ abstract class OAuth2Provider(application: Application, jsonResponse: Boolean = 
       OAuth2Constants.Code -> Seq(code),
       OAuth2Constants.RedirectUri -> Seq(RoutesHelper.authenticate(id).absoluteURL(IdentityProvider.sslEnabled))
     )
-    val call = WS.url(settings.accessTokenUrl).post(params)
-    try {
-      buildInfo(awaitResult(call))
-    } catch {
+
+    WS.url(settings.accessTokenUrl).post(params).map(buildInfo).recoverWith {
       case e: Exception => {
         Logger.error("[securesocial] error trying to get an access token for provider %s".format(id), e)
-        throw new AuthenticationException()
+        Future.failed(new AuthenticationException())
       }
     }
   }
@@ -82,7 +82,7 @@ abstract class OAuth2Provider(application: Application, jsonResponse: Boolean = 
       )
   }
 
-  def doAuth[A]()(implicit request: Request[A]): Either[Result, SocialUser] = {
+  def doAuth[A]()(implicit request: Request[A]): Future[Either[SimpleResult, SocialUser]] = {
     request.queryString.get(OAuth2Constants.Error).flatMap(_.headOption).map( error => {
       error match {
         case OAuth2Constants.AccessDenied => throw new AccessDeniedException()
@@ -96,53 +96,58 @@ abstract class OAuth2Provider(application: Application, jsonResponse: Boolean = 
     request.queryString.get(OAuth2Constants.Code).flatMap(_.headOption) match {
       case Some(code) =>
         // we're being redirected back from the authorization server with the access code.
-        val user = for (
+        (for (
           // check if the state we sent is equal to the one we're receiving now before continuing the flow.
           sessionId <- request.session.get(IdentityProvider.SessionId) ;
           // todo: review this -> clustered environments
           originalState <- Cache.getAs[String](sessionId) ;
           currentState <- request.queryString.get(OAuth2Constants.State).flatMap(_.headOption) if originalState == currentState
         ) yield {
-          val accessToken = getAccessToken(code)
-          val oauth2Info = Some(
-            OAuth2Info(accessToken.accessToken, accessToken.tokenType, accessToken.expiresIn, accessToken.refreshToken)
-          )
-          SocialUser(IdentityId("", id), "", "", "", None, None, authMethod, oAuth2Info = oauth2Info)
+          getAccessToken(code).map { accessToken =>
+            val oauth2Info = Some(
+              OAuth2Info(accessToken.accessToken, accessToken.tokenType, accessToken.expiresIn, accessToken.refreshToken)
+            )
+            val user = SocialUser(IdentityId("", id), "", "", "", None, None, authMethod, oAuth2Info = oauth2Info)
+            if ( Logger.isDebugEnabled ) {
+              Logger.debug("[securesocial] user = " + user)
+            }
+            Right(user)
+          }
+        }).getOrElse {
+          Future.failed(new AuthenticationException())
         }
-        if ( Logger.isDebugEnabled ) {
-          Logger.debug("[securesocial] user = " + user)
-        }
-        user match  {
-          case Some(u) => Right(u)
-          case _ => throw new AuthenticationException()
-        }
+
       case None =>
-        // There's no code in the request, this is the first step in the oauth flow
-        val state = UUID.randomUUID().toString
-        val sessionId = request.session.get(IdentityProvider.SessionId).getOrElse(UUID.randomUUID().toString)
-        Cache.set(sessionId, state, 300)
-        var params = List(
-          (OAuth2Constants.ClientId, settings.clientId),
-          (OAuth2Constants.RedirectUri, RoutesHelper.authenticate(id).absoluteURL(IdentityProvider.sslEnabled)),
-          (OAuth2Constants.ResponseType, OAuth2Constants.Code),
-          (OAuth2Constants.State, state))
-        settings.scope.foreach( s => { params = (OAuth2Constants.Scope, s) :: params })
+        Future {
+          // There's no code in the request, this is the first step in the oauth flow
+          val state = UUID.randomUUID().toString
+          val sessionId = request.session.get(IdentityProvider.SessionId).getOrElse(UUID.randomUUID().toString)
+          Cache.set(sessionId, state, 300)
+          var params = List(
+            (OAuth2Constants.ClientId, settings.clientId),
+            (OAuth2Constants.RedirectUri, RoutesHelper.authenticate(id).absoluteURL(IdentityProvider.sslEnabled)),
+            (OAuth2Constants.ResponseType, OAuth2Constants.Code),
+            (OAuth2Constants.State, state))
+          settings.scope.foreach(s => {
+            params = (OAuth2Constants.Scope, s) :: params
+          })
 
-        // split url to separate existing query string, if any
-        val (path, query) = settings.authorizationUrl.split("\\?", 2) match {
-          case parts if parts.size == 2 => (parts(0), Some(parts(1)))
-          case parts => (parts(0), None)
+          // split url to separate existing query string, if any
+          val (path, query) = settings.authorizationUrl.split("\\?", 2) match {
+            case parts if parts.size == 2 => (parts(0), Some(parts(1)))
+            case parts => (parts(0), None)
+          }
+
+          val encoded = params.map(p => p._1 + "=" + URLEncoder.encode(p._2, "UTF-8"))
+          val queryString = query.map(_ :: encoded).getOrElse(encoded).mkString("?", "&", "")
+          val url = path + queryString
+
+          if (Logger.isDebugEnabled) {
+            Logger.debug("[securesocial] authorizationUrl = %s".format(settings.authorizationUrl))
+            Logger.debug("[securesocial] redirecting to: [%s]".format(url))
+          }
+          Left(Results.Redirect(url).withSession(request.session +(IdentityProvider.SessionId, sessionId)))
         }
-
-        val encoded = params.map(p => p._1 + "=" + URLEncoder.encode(p._2, "UTF-8"))
-        val queryString = query.map(_ :: encoded).getOrElse(encoded).mkString("?", "&", "")
-        val url = path + queryString
-
-        if ( Logger.isDebugEnabled ) {
-          Logger.debug("[securesocial] authorizationUrl = %s".format(settings.authorizationUrl))
-          Logger.debug("[securesocial] redirecting to: [%s]".format(url))
-        }
-        Left(Results.Redirect( url ).withSession(request.session + (IdentityProvider.SessionId, sessionId)))
     }
   }
 }

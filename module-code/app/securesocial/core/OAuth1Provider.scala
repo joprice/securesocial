@@ -21,10 +21,10 @@ import play.api.cache.Cache
 import play.api.libs.oauth.{RequestToken, ConsumerKey, OAuth, ServiceInfo}
 import play.api.{Application, Logger, Play}
 import providers.utils.RoutesHelper
-import play.api.mvc.{Request, Result}
+import play.api.mvc.{Request, SimpleResult}
 import play.api.mvc.Results.Redirect
 import Play.current
-
+import scala.concurrent.Future
 
 /**
  * Base class for all OAuth1 providers
@@ -53,7 +53,7 @@ abstract class OAuth1Provider(application: Application) extends IdentityProvider
   }
 
 
-  def doAuth[A]()(implicit request: Request[A]):Either[Result, SocialUser] = {
+  def doAuth[A]()(implicit request: Request[A]): Future[Either[SimpleResult, SocialUser]] = {
     if ( request.queryString.get("denied").isDefined ) {
       // the user did not grant access to the account
       throw new AccessDeniedException()
@@ -67,18 +67,20 @@ abstract class OAuth1Provider(application: Application) extends IdentityProvider
         cacheKey <- request.session.get(OAuth1Provider.CacheKey)
         requestToken <- Cache.getAs[RequestToken](cacheKey)
       } yield {
-        service.retrieveAccessToken(RequestToken(requestToken.token, requestToken.secret), verifier) match {
-          case Right(token) =>
-            Cache.remove(cacheKey)
-            Right(
-              SocialUser(
-                IdentityId("", id), "", "", "", None, None, authMethod,
-                oAuth1Info = Some(OAuth1Info(token.token, token.secret))
+        Future {
+          service.retrieveAccessToken(RequestToken(requestToken.token, requestToken.secret), verifier) match {
+            case Right(token) =>
+              Cache.remove(cacheKey)
+              Right(
+                SocialUser(
+                  IdentityId("", id), "", "", "", None, None, authMethod,
+                  oAuth1Info = Some(OAuth1Info(token.token, token.secret))
+                )
               )
-            )
-          case Left(oauthException) =>
-            Logger.error("[securesocial] error retrieving access token", oauthException)
-            throw new AuthenticationException()
+            case Left(oauthException) =>
+              Logger.error("[securesocial] error retrieving access token", oauthException)
+              throw new AuthenticationException()
+          }
         }
       }
       user.getOrElse( throw new AuthenticationException() )
@@ -88,17 +90,20 @@ abstract class OAuth1Provider(application: Application) extends IdentityProvider
       val callbackUrl = RoutesHelper.authenticate(id).absoluteURL(IdentityProvider.sslEnabled)
       if ( Logger.isDebugEnabled ) {
         Logger.debug("[securesocial] callback url = " + callbackUrl)
+
       }
-      service.retrieveRequestToken(callbackUrl) match {
-        case Right(accessToken) =>
-          val cacheKey = UUID.randomUUID().toString
-          val redirect = Redirect(service.redirectUrl(accessToken.token)).withSession(request.session +
-            (OAuth1Provider.CacheKey -> cacheKey))
-          Cache.set(cacheKey, accessToken, 300) // set it for 5 minutes, plenty of time to log in
-          Left(redirect)
-        case Left(e) =>
-          Logger.error("[securesocial] error retrieving request token", e)
-          throw new AuthenticationException()
+      Future {
+        service.retrieveRequestToken(callbackUrl) match {
+          case Right(accessToken) =>
+            val cacheKey = UUID.randomUUID().toString
+            val redirect = Redirect(service.redirectUrl(accessToken.token)).withSession(request.session +
+              (OAuth1Provider.CacheKey -> cacheKey))
+            Cache.set(cacheKey, accessToken, 300) // set it for 5 minutes, plenty of time to log in
+            Left(redirect)
+          case Left(e) =>
+            Logger.error("[securesocial] error retrieving request token", e)
+            throw new AuthenticationException()
+        }
       }
     }
   }

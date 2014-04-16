@@ -4,7 +4,7 @@ import play.api.libs.ws.WS
 import play.api.{Application, Logger}
 import play.api.libs.json.JsObject
 import securesocial.core._
-
+import scala.concurrent.Future
 
 /**
  * A Vk provider
@@ -22,10 +22,7 @@ class VkProvider(application: Application) extends OAuth2Provider(application) {
 
   def fillProfile(user: SocialUser) = {
     val accessToken = user.oAuth2Info.get.accessToken
-    val promise = WS.url(GetProfilesApi + accessToken).get()
-
-    try {
-      val response = awaitResult(promise)
+    WS.url(GetProfilesApi + accessToken).get().map { response =>
       val json = response.json
       (json \ Error).asOpt[JsObject] match {
         case Some(error) =>
@@ -49,10 +46,10 @@ class VkProvider(application: Application) extends OAuth2Provider(application) {
             email = None
           )
       }
-    } catch {
+    } recoverWith {
       case e: Exception => {
         Logger.error("[securesocial] error retrieving profile information from VK", e)
-        throw new AuthenticationException()
+        Future.failed(new AuthenticationException())
       }
     }
   }

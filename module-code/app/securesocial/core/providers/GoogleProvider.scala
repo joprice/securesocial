@@ -20,7 +20,7 @@ import play.api.libs.ws.WS
 import play.api.{Application, Logger}
 import play.api.libs.json.JsObject
 import securesocial.core._
-
+import scala.concurrent.Future
 
 /**
  * A Google OAuth2 Provider
@@ -40,12 +40,9 @@ class GoogleProvider(application: Application) extends OAuth2Provider(applicatio
 
   override def id = GoogleProvider.Google
 
-  def fillProfile(user: SocialUser): SocialUser = {
+  def fillProfile(user: SocialUser) = {
     val accessToken = user.oAuth2Info.get.accessToken
-    val promise = WS.url(UserInfoApi + accessToken).get()
-
-    try {
-      val response = awaitResult(promise)
+    WS.url(UserInfoApi + accessToken).get().map { response =>
       val me = response.json
       (me \ Error).asOpt[JsObject] match {
         case Some(error) =>
@@ -70,10 +67,10 @@ class GoogleProvider(application: Application) extends OAuth2Provider(applicatio
             email = email
           )
       }
-    } catch {
+    }.recoverWith {
       case e: Exception => {
         Logger.error( "[securesocial] error retrieving profile information from Google", e)
-        throw new AuthenticationException()
+        Future.failed(new AuthenticationException())
       }
     }
   }

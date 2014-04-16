@@ -22,7 +22,7 @@ import play.api.libs.ws.WS
 import securesocial.core.IdentityId
 import securesocial.core.SocialUser
 import securesocial.core.AuthenticationException
-import scala.Some
+import scala.concurrent.Future
 
 /**
  * An Instagram provider
@@ -49,11 +49,8 @@ class InstagramProvider(application: Application) extends OAuth2Provider(applica
    * @param user The user object to be populated
    * @return A copy of the user object with the new values set
    */
-  def fillProfile(user: SocialUser): SocialUser = {
-    val promise = WS.url(GetAuthenticatedUser.format(user.oAuth2Info.get.accessToken)).get()
-
-    try {
-      val response = awaitResult(promise)
+  def fillProfile(user: SocialUser) = {
+    WS.url(GetAuthenticatedUser.format(user.oAuth2Info.get.accessToken)).get().map { response =>
       val me = response.json
 
       (me \ "response" \ "user").asOpt[String] match {
@@ -73,10 +70,10 @@ class InstagramProvider(application: Application) extends OAuth2Provider(applica
           )
         }
       }
-    } catch {
+    }.recoverWith {
       case e: Exception => {
         Logger.error( "[securesocial] error retrieving profile information from Instagram", e)
-        throw new AuthenticationException()
+        Future.failed(new AuthenticationException())
       }
     }
   }

@@ -21,7 +21,7 @@ import play.api.libs.oauth.{RequestToken, OAuthCalculator}
 import play.api.libs.ws.WS
 import play.api.{Application, Logger}
 import LinkedInProvider._
-
+import scala.concurrent.Future
 
 /**
  * A LinkedIn Provider
@@ -31,13 +31,10 @@ class LinkedInProvider(application: Application) extends OAuth1Provider(applicat
 
   override def id = LinkedInProvider.LinkedIn
 
-  override def fillProfile(user: SocialUser): SocialUser = {
+  override def fillProfile(user: SocialUser) = {
     val oauthInfo = user.oAuth1Info.get
-    val promise = WS.url(LinkedInProvider.Api).sign(OAuthCalculator(SecureSocial.serviceInfoFor(user).get.key,
-      RequestToken(oauthInfo.token, oauthInfo.secret))).get()
-
-     try {
-       val response = awaitResult(promise)
+    WS.url(LinkedInProvider.Api).sign(OAuthCalculator(SecureSocial.serviceInfoFor(user).get.key,
+      RequestToken(oauthInfo.token, oauthInfo.secret))).get().map { response =>
        val me = response.json
        (me \ ErrorCode).asOpt[Int] match {
          case Some(error) => {
@@ -68,11 +65,10 @@ class LinkedInProvider(application: Application) extends OAuth1Provider(applicat
            )
          }
        }
-     } catch {
-       case e: Exception => {
+     }.recoverWith {
+       case e: Exception =>
          Logger.error("[securesocial] error retrieving profile information from LinkedIn", e)
-         throw new AuthenticationException()
-       }
+         Future.failed(new AuthenticationException())
      }
   }
 }
