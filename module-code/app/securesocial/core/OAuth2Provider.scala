@@ -132,15 +132,9 @@ abstract class OAuth2Provider(application: Application, jsonResponse: Boolean = 
             params = (OAuth2Constants.Scope, s) :: params
           })
 
-          // split url to separate existing query string, if any
-          val (path, query) = settings.authorizationUrl.split("\\?", 2) match {
-            case parts if parts.size == 2 => (parts(0), Some(parts(1)))
-            case parts => (parts(0), None)
-          }
+           val paramsMap = params.map { case (key, value) => (key, Seq(value)) }.toMap
 
-          val encoded = params.map(p => p._1 + "=" + URLEncoder.encode(p._2, "UTF-8"))
-          val queryString = query.map(_ :: encoded).getOrElse(encoded).mkString("?", "&", "")
-          val url = path + queryString
+           val url = SecureSocial.addParams(settings.authorizationUrl, paramsMap)
 
           if (Logger.isDebugEnabled) {
             Logger.debug("[securesocial] authorizationUrl = %s".format(settings.authorizationUrl))
@@ -150,6 +144,8 @@ abstract class OAuth2Provider(application: Application, jsonResponse: Boolean = 
         }
     }
   }
+
+
 }
 
 case class OAuth2Settings(authorizationUrl: String, accessTokenUrl: String, clientId: String,

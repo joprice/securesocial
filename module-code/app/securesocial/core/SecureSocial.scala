@@ -16,6 +16,7 @@
  */
 package securesocial.core
 
+import _root_.java.net.URLEncoder
 import play.api.mvc._
 import providers.utils.RoutesHelper
 import play.api.i18n.Messages
@@ -109,15 +110,15 @@ trait SecureSocial extends Controller {
     {
       implicit val req = request
       val result = for (
-        authenticator <- SecureSocial.authenticatorFromRequest ;
+        authenticator <- SecureSocial.authenticatorFromRequest;
         user <- UserService.find(authenticator.identityId)
       ) yield {
         touch(authenticator)
-        if ( authorize.isEmpty || authorize.get.isAuthorized(user)) {
+        if (authorize.isEmpty || authorize.get.isAuthorized(user)) {
           block(SecuredRequest(user, request))
         } else {
           Future.successful {
-            if ( ajaxCall ) {
+            if (ajaxCall) {
               ajaxCallNotAuthorized(request)
             } else {
               Redirect(RoutesHelper.notAuthorized.absoluteURL(IdentityProvider.sslEnabled))
@@ -133,7 +134,9 @@ trait SecureSocial extends Controller {
         val response = if ( ajaxCall ) {
           ajaxCallNotAuthenticated(request)
         } else {
-          Redirect(RoutesHelper.login().absoluteURL(IdentityProvider.sslEnabled))
+          val loginUrl = RoutesHelper.login().absoluteURL(IdentityProvider.sslEnabled)
+          val url = SecureSocial.addParams(loginUrl, request.queryString)
+          Redirect(url)
             .flashing("error" -> Messages("securesocial.loginRequired"))
             .withSession(session + (SecureSocial.OriginalUrlKey -> request.uri)
           )
@@ -181,6 +184,51 @@ object SecureSocial {
   lazy val contextName = current.configuration.getString("securesocial.context").getOrElse("securesocial")
 
   implicit lazy val context: ExecutionContext = Akka.system.dispatchers.lookup(contextName)
+
+  def splitUrlAndParams(url: String): (String, Option[String]) = {
+    // split url to separate existing query string, if any
+    url.split("\\?", 2) match {
+      case parts if parts.size == 2 => (parts(0), Some(parts(1)))
+      case parts => (parts(0), None)
+    }
+  }
+
+  def addParams(url: String, params: Map[String, Seq[String]]) = {
+    val (path, query) = splitUrlAndParams(url)
+    val encoded = params.flatMap { case (key, params) => 
+      params.map(key + "=" + URLEncoder.encode(_, "UTF-8"))
+    }.toList
+
+    val queryString = query.map(_ :: encoded).getOrElse(encoded)
+
+    queryString.isEmpty match {
+      case true => path
+      case _    => path + queryString.mkString("?", "&", "")
+    }
+  }
+
+  def withQueryString(url: String)(implicit request: RequestHeader): String = {
+    addParams(url, request.queryString)
+  }
+
+  def withQueryString(call: Call, params: Seq[(String, String)])(implicit request: RequestHeader): String = {
+    withQueryString(call, params.map { case (key, value) =>
+      key -> Seq(value)
+    }.toMap)
+  }
+
+  def withQueryString(call: Call, params: Map[String, Seq[String]] = Map.empty)(implicit request: RequestHeader): String = {
+    val encoded = (request.queryString ++ params).flatMap { case (k, values) => 
+      values.map { v =>
+        URLEncoder.encode(k, "UTF-8") + "=" + URLEncoder.encode(v, "UTF-8")
+      }
+    }.mkString("&")
+
+    encoded match {
+      case "" => call.url
+      case _  => call.url + "?" + encoded
+    }
+  }
 
   def authenticatorFromRequest(implicit request: RequestHeader): Option[Authenticator] = {
     val result = for {

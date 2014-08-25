@@ -34,7 +34,7 @@ import securesocial.core.IdentityId
 import scala.language.reflectiveCalls
 import play.api.mvc.SimpleResult
 import scala.concurrent.{ExecutionContext, Future}
-import SecureSocial.context
+import SecureSocial.{context, withQueryString}
 
 
 /**
@@ -190,10 +190,10 @@ object Registration extends Controller {
             val token = createToken(email, isSignUp = true)
             Mailer.sendSignUpEmail(email, token._1)
           }.map { _ =>
-            Redirect(onHandleStartSignUpGoTo).flashing(Success -> Messages(ThankYouCheckEmail), Email -> email)
+            Redirect(withQueryString(onHandleStartSignUpGoTo)).flashing(Success -> Messages(ThankYouCheckEmail), Email -> email)
           }.recover {
             case ex =>
-              Redirect(onHandleStartSignUpGoTo).flashing(Error -> Messages(ErrorSendingEmail), Email -> email)
+              Redirect(withQueryString(onHandleStartSignUpGoTo)).flashing(Error -> Messages(ErrorSendingEmail), Email -> email)
           }
         }
       )
@@ -266,7 +266,7 @@ object Registration extends Controller {
               if (UsernamePasswordProvider.signupSkipLogin) {
                 ProviderController.completeAuthentication(user, eventSession).flashing(Success -> Messages(SignUpDone))
               } else {
-                Redirect(onHandleSignUpGoTo).flashing(Success -> Messages(SignUpDone)).withSession(eventSession)
+                Redirect(withQueryString(onHandleSignUpGoTo)).flashing(Success -> Messages(SignUpDone)).withSession(eventSession)
               }
             }
           }
@@ -299,10 +299,10 @@ object Registration extends Controller {
             Mailer.sendUnkownEmailNotice(email)
           }
         }.map { _ =>
-          Redirect(onHandleStartResetPasswordGoTo).flashing(Success -> Messages(ThankYouCheckEmail))
+          Redirect(withQueryString(onHandleStartResetPasswordGoTo)).flashing(Success -> Messages(ThankYouCheckEmail))
         }.recover {
           case ex =>
-            Redirect(onHandleStartResetPasswordGoTo).flashing(Error -> Messages(ErrorSendingEmail))
+            Redirect(withQueryString(onHandleStartResetPasswordGoTo)).flashing(Error -> Messages(ErrorSendingEmail))
         }
       }
     )
@@ -336,7 +336,7 @@ object Registration extends Controller {
               ((Error -> Messages(ErrorUpdatingPassword)), None)
             }
           }
-          val result = Redirect(onHandleResetPasswordGoTo).flashing(toFlash)
+          val result = Redirect(withQueryString(onHandleResetPasswordGoTo)).flashing(toFlash)
           eventSession.map(result.withSession(_)).getOrElse(result)
         }
       })
